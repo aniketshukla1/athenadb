@@ -19,6 +19,26 @@ fn entry(id: &str, v: Vec<f32>) -> Entry {
 }
 
 #[test]
+fn scan_over_database_survives_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        db.add(entry("a", vec![1.0, 0.0])).unwrap();
+        db.add(entry("b", vec![0.0, 1.0])).unwrap();
+        assert_eq!(db.scan(None, None, None, 0).len(), 2);
+        assert_eq!(db.scan(Some("default"), None, None, 0).len(), 2);
+        assert!(db.scan(Some("other"), None, None, 0).is_empty());
+        assert_eq!(db.scan(None, None, Some(1), 0).len(), 1); // pagination
+    }
+    // scan works the same after recovery from the WAL
+    let db = Database::open(dir.path()).unwrap();
+    let rows = db.scan(Some("default"), None, None, 0);
+    assert_eq!(rows.len(), 2);
+    let ids: Vec<&str> = rows.iter().map(|e| e.id.as_str()).collect();
+    assert!(ids.contains(&"a") && ids.contains(&"b"));
+}
+
+#[test]
 fn reopen_recovers_from_wal() {
     let dir = tempfile::tempdir().unwrap();
     {

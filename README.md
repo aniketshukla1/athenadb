@@ -75,15 +75,20 @@ db.add(
     embed_model_id="bge-small",
 )
 hits = db.query([1.0, 0.0, 0.0], k=10)   # [(id, score, namespace, embed_model_id, metadata_json), ...]
+
+# Enumerate stored entries (no ranking) with namespace filter + pagination.
+# Returns (id, namespace, embed_model_id, metadata_json) tuples.
+rows = db.scan(namespace="default", limit=100, offset=0)
+
 db.snapshot()
 ```
 
 ## Status & roadmap
 
-Core engine and durability are complete and tested. Planned enhancements:
-an ANN index (HNSF/IVF) for sublinear search, group-commit WAL for higher
-write throughput, the HTTP endpoints, and a re-embedding pipeline keyed off
-`embed_model_id`.
+Core engine, durability, and enumeration (`scan`) are complete and tested.
+Planned enhancements: an ANN index (HNSW/IVF) for sublinear search,
+group-commit WAL for higher write throughput, the HTTP endpoints, and a
+re-embedding pipeline keyed off `embed_model_id`.
 
 ## License
 

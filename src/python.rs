@@ -123,6 +123,28 @@ impl AthenaDB {
         Ok(removed)
     }
 
+    /// Enumerate stored entries without similarity ranking, optionally filtered
+    /// by `namespace` / `embed_model_id`, with `offset`/`limit` pagination.
+    /// Returns `(id, namespace, embed_model_id, metadata_json)` tuples — no
+    /// score, since scan does not rank.
+    #[pyo3(signature = (namespace=None, embed_model_id=None, limit=None, offset=0))]
+    fn scan(
+        &self,
+        namespace: Option<String>,
+        embed_model_id: Option<String>,
+        limit: Option<usize>,
+        offset: usize,
+    ) -> Vec<(String, String, String, String)> {
+        self.inner
+            .scan(namespace.as_deref(), embed_model_id.as_deref(), limit, offset)
+            .into_iter()
+            .map(|e| {
+                let meta = serde_json::to_string(&e.metadata).unwrap_or_else(|_| "null".into());
+                (e.id.clone(), e.namespace.clone(), e.embed_model_id.clone(), meta)
+            })
+            .collect()
+    }
+
     /// Force a snapshot and truncate the WAL.
     fn snapshot(&mut self) -> PyResult<()> {
         self.inner.snapshot().map_err(to_py)

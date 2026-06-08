@@ -86,3 +86,50 @@ def test_add_documents_shim(tmp_path):
     db = athenadb.AthenaDB(str(tmp_path / "db"))
     db.add_documents(ids=["a"], embeddings=[[1.0, 0.0]], embed_model_id="m")
     assert len(db) == 1
+
+
+def test_scan_filters_and_paginates(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    for i in range(5):
+        db.add(ids=[f"a{i}"], vectors=[[1.0, 0.0]], namespace="ns-a", embed_model_id="m")
+    for i in range(3):
+        db.add(ids=[f"b{i}"], vectors=[[0.0, 1.0]], namespace="ns-b", embed_model_id="m")
+
+    # namespace filter; tuple shape is (id, namespace, embed_model_id, metadata_json)
+    rows = db.scan(namespace="ns-a")
+    assert len(rows) == 5
+    assert all(r[1] == "ns-a" and r[2] == "m" for r in rows)
+    assert len(db.scan(namespace="ns-b")) == 3
+    assert len(db.scan()) == 8  # no filter -> all
+
+    # embedding-model filter
+    assert len(db.scan(embed_model_id="m")) == 8
+    assert db.scan(embed_model_id="other") == []
+
+    # pagination
+    assert len(db.scan(namespace="ns-a", limit=2)) == 2
+    assert len(db.scan(namespace="ns-a", limit=2, offset=4)) == 1
+    assert db.scan(namespace="ns-a", offset=100) == []
+
+
+def test_scan_metadata_round_trips(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add(
+        ids=["m1"],
+        vectors=[[1.0, 0.0]],
+        metadatas=[json.dumps({"created_at": 123, "kind": "episode"})],
+        namespace="episodic",
+        embed_model_id="m",
+    )
+    row = db.scan(namespace="episodic")[0]
+    assert row[0] == "m1"
+    assert json.loads(row[3]) == {"created_at": 123, "kind": "episode"}
+
+
+def test_scan_survives_reopen(tmp_path):
+    path = str(tmp_path / "db")
+    db = athenadb.AthenaDB(path)
+    db.add(ids=["a", "b"], vectors=[[1.0, 0.0], [0.0, 1.0]], embed_model_id="m")
+    del db
+    reopened = athenadb.AthenaDB(path)
+    assert len(reopened.scan()) == 2

@@ -306,6 +306,30 @@ impl VectorStore {
             })
             .collect())
     }
+
+    /// Enumerate stored entries (no similarity ranking), optionally filtered by
+    /// namespace and/or embedding model, with `offset`/`limit` pagination.
+    ///
+    /// Iteration order is storage order — stable between calls as long as the
+    /// store isn't mutated, which is what pagination needs. (Deletes use
+    /// swap-remove, so order is not insertion order across mutations.)
+    pub fn scan(
+        &self,
+        namespace: Option<&str>,
+        embed_model_id: Option<&str>,
+        limit: Option<usize>,
+        offset: usize,
+    ) -> Vec<&Entry> {
+        self.entries
+            .iter()
+            .filter(|e| {
+                namespace.map_or(true, |ns| e.namespace == ns)
+                    && embed_model_id.map_or(true, |m| e.embed_model_id == m)
+            })
+            .skip(offset)
+            .take(limit.unwrap_or(usize::MAX))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -343,6 +367,36 @@ mod tests {
         s.upsert(e("x", vec![1.0, 0.0], "default")).unwrap();
         assert!(s.upsert(e("y", vec![1.0, 0.0, 0.0], "default")).is_err());
         assert!(s.search(&[1.0, 0.0, 0.0], 1, None, None).is_err());
+    }
+
+    #[test]
+    fn scan_filters_and_paginates() {
+        let mut s = VectorStore::new();
+        for i in 0..5 {
+            s.upsert(e(&format!("a{i}"), vec![1.0, 0.0], "ns-a")).unwrap();
+        }
+        for i in 0..3 {
+            s.upsert(e(&format!("b{i}"), vec![0.0, 1.0], "ns-b")).unwrap();
+        }
+
+        // namespace filter
+        assert_eq!(s.scan(Some("ns-a"), None, None, 0).len(), 5);
+        assert_eq!(s.scan(Some("ns-b"), None, None, 0).len(), 3);
+        assert_eq!(s.scan(None, None, None, 0).len(), 8); // all
+        assert!(s.scan(Some("missing"), None, None, 0).is_empty());
+
+        // embedding-model filter (helper sets embed_model_id = "m")
+        assert_eq!(s.scan(None, Some("m"), None, 0).len(), 8);
+        assert!(s.scan(None, Some("other"), None, 0).is_empty());
+
+        // pagination within a namespace
+        assert_eq!(s.scan(Some("ns-a"), None, Some(2), 0).len(), 2);
+        assert_eq!(s.scan(Some("ns-a"), None, Some(2), 2).len(), 2);
+        assert_eq!(s.scan(Some("ns-a"), None, Some(2), 4).len(), 1); // remainder
+        assert!(s.scan(Some("ns-a"), None, Some(2), 10).is_empty()); // offset past end
+
+        // entries returned actually match the filter
+        assert!(s.scan(Some("ns-a"), None, None, 0).iter().all(|e| e.namespace == "ns-a"));
     }
 
     #[test]

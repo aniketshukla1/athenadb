@@ -80,6 +80,18 @@ impl Database {
         self.store.search(query, k, namespace, embed_model_id)
     }
 
+    /// Enumerate stored entries (no ranking), filtered + paginated. See
+    /// [`VectorStore::scan`].
+    pub fn scan(
+        &self,
+        namespace: Option<&str>,
+        embed_model_id: Option<&str>,
+        limit: Option<usize>,
+        offset: usize,
+    ) -> Vec<&Entry> {
+        self.store.scan(namespace, embed_model_id, limit, offset)
+    }
+
     /// Force a snapshot now and truncate the WAL.
     pub fn snapshot(&mut self) -> Result<(), DbError> {
         snapshot::save(&self.dir, &self.store)?;
