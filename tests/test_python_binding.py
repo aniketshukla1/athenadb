@@ -1,0 +1,88 @@
+"""Phase 1.3: PyO3 binding — add/query/delete/snapshot and on-disk persistence.
+
+Skipped automatically if the native module hasn't been built yet
+(`maturin develop --release --features python -m athenadb/Cargo.toml`).
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+athenadb = pytest.importorskip("athenadb")
+
+
+def test_add_and_query_orders_by_cosine(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add(
+        ids=["x", "y", "z"],
+        vectors=[[1.0, 0.0, 0.0], [0.9, 0.1, 0.0], [0.0, 1.0, 0.0]],
+        metadatas=[json.dumps({"label": "x"}), json.dumps({"label": "y"}), json.dumps({"label": "z"})],
+        namespace="default",
+        embed_model_id="bge-small",
+    )
+    assert len(db) == 3
+
+    hits = db.query([1.0, 0.0, 0.0], 2)
+    assert len(hits) == 2
+    ids = [h[0] for h in hits]
+    assert ids == ["x", "y"]
+    # tuple shape: (id, score, namespace, embed_model_id, metadata_json)
+    top = hits[0]
+    assert top[1] > 0.99
+    assert top[2] == "default"
+    assert top[3] == "bge-small"
+    assert json.loads(top[4]) == {"label": "x"}
+
+
+def test_namespace_filter(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add(ids=["a"], vectors=[[1.0, 0.0]], namespace="team-a", embed_model_id="m")
+    db.add(ids=["b"], vectors=[[1.0, 0.0]], namespace="team-b", embed_model_id="m")
+    hits = db.query([1.0, 0.0], 5, "team-a")
+    assert [h[0] for h in hits] == ["a"]
+
+
+def test_delete(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add(ids=["a", "b"], vectors=[[1.0, 0.0], [0.0, 1.0]])
+    removed = db.delete(["a", "missing"])
+    assert removed == 1
+    assert len(db) == 1
+
+
+def test_persistence_across_reopen(tmp_path):
+    path = str(tmp_path / "db")
+    db = athenadb.AthenaDB(path)
+    db.add(ids=["a", "b"], vectors=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], embed_model_id="m")
+    del db  # drop the handle; data is durable in the WAL
+
+    reopened = athenadb.AthenaDB(path)
+    assert len(reopened) == 2
+    assert reopened.query([1.0, 0.0, 0.0], 1)[0][0] == "a"
+
+
+def test_snapshot_then_reopen(tmp_path):
+    path = str(tmp_path / "db")
+    db = athenadb.AthenaDB(path)
+    db.add(ids=["a"], vectors=[[1.0, 0.0]])
+    db.snapshot()
+    db.add(ids=["b"], vectors=[[0.0, 1.0]])
+    del db
+
+    reopened = athenadb.AthenaDB(path)
+    assert len(reopened) == 2
+
+
+def test_dimension_mismatch_raises(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add(ids=["a"], vectors=[[1.0, 0.0]])
+    with pytest.raises(Exception):
+        db.add(ids=["b"], vectors=[[1.0, 0.0, 0.0]])
+
+
+def test_add_documents_shim(tmp_path):
+    db = athenadb.AthenaDB(str(tmp_path / "db"))
+    db.add_documents(ids=["a"], embeddings=[[1.0, 0.0]], embed_model_id="m")
+    assert len(db) == 1
