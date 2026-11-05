@@ -2,6 +2,7 @@
 name = "athenadb"
 version = "0.2.0"
 edition = "2021"
+license = "Apache-2.0"
 description = "Custom high-performance vector store for the Athena swarm: SIMD cosine search, WAL+snapshot durability, dual-mode (PyO3 + Axum)."
 
 [lib]

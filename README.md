@@ -92,4 +92,4 @@ re-embedding pipeline keyed off `embed_model_id`.
 
 ## License
 
-TODO — add a license before public release.
+[Apache License 2.0](LICENSE) — permissive, with an explicit patent grant.
