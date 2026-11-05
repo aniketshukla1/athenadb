@@ -3,7 +3,7 @@
 //! Ignored by default (heavy: ~3GB RAM). Run explicitly:
 //!   cargo test --release --test bench -- --ignored --nocapture
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use athenadb::core::{Entry, VectorStore};
 
@@ -18,12 +18,7 @@ fn fill(v: &mut [f32], state: &mut u64) {
     }
 }
 
-#[test]
-#[ignore]
-fn bench_million_vectors() {
-    let n = 1_000_000usize;
-    let dim = 768usize;
-
+fn measure(n: usize, dim: usize) -> (Duration, Duration) {
     let mut store = VectorStore::new();
     let mut state = 0x9e37_79b9_7f4a_7c15u64;
 
@@ -49,15 +44,30 @@ fn bench_million_vectors() {
 
     let _ = store.search(&q, 10, None, None).unwrap(); // warm up
 
-    let iters = 10u32;
-    let t1 = Instant::now();
-    for _ in 0..iters {
-        let _ = store.search(&q, 10, None, None).unwrap();
-    }
-    let per = t1.elapsed() / iters;
+    // Median, not mean: one query preempted by another process shouldn't move the number.
+    let mut times: Vec<Duration> = (0..31)
+        .map(|_| {
+            let t = Instant::now();
+            let _ = store.search(&q, 10, None, None).unwrap();
+            t.elapsed()
+        })
+        .collect();
+    times.sort();
+    (build, times[times.len() / 2])
+}
 
-    println!(
-        "BENCH: built {n} x {dim}d in {build:?}; mean top-10 query = {per:?}"
-    );
-    assert!(per.as_millis() < 50, "query exceeded 50ms target: {per:?}");
+#[test]
+#[ignore]
+fn bench_million_vectors() {
+    let mut million_768 = Duration::ZERO;
+    for dim in [384usize, 768] {
+        for n in [10_000usize, 100_000, 1_000_000] {
+            let (build, per) = measure(n, dim);
+            println!("BENCH: {n} x {dim}d: built in {build:?}; median top-10 query = {per:?}");
+            if n == 1_000_000 && dim == 768 {
+                million_768 = per;
+            }
+        }
+    }
+    assert!(million_768.as_millis() < 50, "query exceeded 50ms target: {million_768:?}");
 }
