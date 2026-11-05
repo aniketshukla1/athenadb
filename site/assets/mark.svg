@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AthenaDB">
+  <!-- Three rings of vectors stacked into a database, with a query running through them. -->
+  <g fill="none" stroke="#818cf8" stroke-width="2.2">
+    <ellipse cx="32" cy="17" rx="25" ry="9"/>
+    <ellipse cx="32" cy="32" rx="25" ry="9"/>
+    <ellipse cx="32" cy="47" rx="25" ry="9"/>
+  </g>
+  <line x1="32" y1="9" x2="32" y2="55" stroke="#2dd4bf" stroke-width="2.2" stroke-linecap="round"/>
+  <g fill="#818cf8">
+    <circle cx="7" cy="17" r="2.9"/><circle cx="57" cy="17" r="2.9"/>
+    <circle cx="7" cy="32" r="2.9"/><circle cx="57" cy="32" r="2.9"/>
+    <circle cx="7" cy="47" r="2.9"/><circle cx="57" cy="47" r="2.9"/>
+  </g>
+  <g fill="#2dd4bf">
+    <circle cx="44" cy="25" r="3.5"/>
+    <circle cx="19" cy="56" r="3.5"/>
+    <circle cx="32" cy="32" r="5"/>
+  </g>
+</svg>

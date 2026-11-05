@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 380" width="860" height="380" role="img" aria-labelledby="t d" font-family="-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
+<title id="t">AthenaDB query latency by corpus size</title>
+<desc id="d">Median top-10 query latency on an Apple M1 Pro. 384 dimensions: 0.31 ms at 10 thousand vectors, 2.15 ms at 100 thousand, 17 ms at 1 million. 768 dimensions: 0.47 ms, 3.81 ms, 39 ms.</desc>
+<rect width="860" height="380" rx="16" fill="#0b0e14" stroke="#1c2230"/>
+<text x="28" y="40" font-size="19" font-weight="600" fill="#e2e8f0">Exact search: 10× the data takes 7–10× the time</text>
+<text x="28" y="64" font-size="13.5" fill="#94a3b8">Median top-10 query latency. Best of 3 runs, Apple M1 Pro, 8 cores. Log scales.</text>
+<line x1="84" x2="710" y1="322.0" y2="322.0" stroke="#1c2230"/>
+<text x="72" y="326.0" font-size="12.5" fill="#64748b" text-anchor="end">0.1 ms</text>
+<line x1="84" x2="710" y1="245.3" y2="245.3" stroke="#1c2230"/>
+<text x="72" y="249.3" font-size="12.5" fill="#64748b" text-anchor="end">1 ms</text>
+<line x1="84" x2="710" y1="168.7" y2="168.7" stroke="#1c2230"/>
+<text x="72" y="172.7" font-size="12.5" fill="#64748b" text-anchor="end">10 ms</text>
+<line x1="84" x2="710" y1="92.0" y2="92.0" stroke="#1c2230"/>
+<text x="72" y="96.0" font-size="12.5" fill="#64748b" text-anchor="end">100 ms</text>
+<text x="84.0" y="346" font-size="12.5" fill="#64748b" text-anchor="middle">10K vectors</text>
+<text x="397.0" y="346" font-size="12.5" fill="#64748b" text-anchor="middle">100K vectors</text>
+<text x="710.0" y="346" font-size="12.5" fill="#64748b" text-anchor="middle">1M vectors</text>
+<polyline points="84.0,270.5 397.0,200.8 710.0,123.4" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="84.0" cy="270.5" r="5" fill="#6366f1" stroke="#0b0e14" stroke-width="2"/>
+<circle cx="397.0" cy="200.8" r="5" fill="#6366f1" stroke="#0b0e14" stroke-width="2"/>
+<circle cx="710.0" cy="123.4" r="5" fill="#6366f1" stroke="#0b0e14" stroke-width="2"/>
+<text x="722.0" y="103.4" font-size="14" font-weight="600" fill="#e2e8f0">39 ms</text>
+<text x="722.0" y="119.4" font-size="12" fill="#94a3b8">768 dimensions</text>
+<polyline points="84.0,284.3 397.0,219.8 710.0,150.5" fill="none" stroke="#0d9488" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="84.0" cy="284.3" r="5" fill="#0d9488" stroke="#0b0e14" stroke-width="2"/>
+<circle cx="397.0" cy="219.8" r="5" fill="#0d9488" stroke="#0b0e14" stroke-width="2"/>
+<circle cx="710.0" cy="150.5" r="5" fill="#0d9488" stroke="#0b0e14" stroke-width="2"/>
+<text x="722.0" y="147.5" font-size="14" font-weight="600" fill="#e2e8f0">17 ms</text>
+<text x="722.0" y="164.5" font-size="12" fill="#94a3b8">384 dimensions</text>
+</svg>

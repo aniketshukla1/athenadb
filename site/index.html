@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AthenaDB: exact vector search in Rust, with crash-consistent storage</title>
+  <meta name="description" content="An embeddable vector database in Rust. SIMD cosine search, parallel top-k, write-ahead logging and atomic snapshots. Use it from Python or Rust, with no server to run.">
+  <meta property="og:title" content="AthenaDB">
+  <meta property="og:description" content="Exact vector search in Rust, with crash-consistent storage.">
+  <meta property="og:image" content="https://aniketshukla1.github.io/athenadb/assets/social-card.png">
+  <meta property="og:url" content="https://aniketshukla1.github.io/athenadb/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#090b10">
+  <link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="#main" aria-label="AthenaDB, top of page">
+      <img src="assets/mark.svg" alt="" width="26" height="26">
+      <span>AthenaDB</span>
+    </a>
+    <nav aria-label="Main">
+      <a href="#start">Quick start</a>
+      <a href="#how">How it works</a>
+      <a href="#performance">Performance</a>
+      <a href="https://github.com/aniketshukla1/athenadb">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">Open source · Apache-2.0</p>
+        <h1>Exact vector search, with <span class="grad">crash-consistent</span> storage</h1>
+        <p class="lede">An embeddable vector database in Rust. SIMD cosine search, parallel top-k, and a
+          write-ahead log that survives <code>kill -9</code>. Use it from Python or Rust, with no server to run.</p>
+        <div class="cta">
+          <a class="btn primary" href="#start">Get started <span aria-hidden="true">→</span></a>
+          <a class="btn" href="https://github.com/aniketshukla1/athenadb">View on GitHub</a>
+        </div>
+        <dl class="stats">
+          <div><dt>39 ms</dt><dd>top-10 over 1M 768-dim vectors</dd></div>
+          <div><dt>100%</dt><dd>recall: every search is exact</dd></div>
+          <div><dt>0</dt><dd>servers to run</dd></div>
+        </dl>
+      </div>
+      <div class="hero-art">
+        <canvas id="logo" aria-hidden="true"></canvas>
+        <img class="hero-fallback" id="logo-fallback" src="assets/mark.svg" alt="" width="220" height="220">
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap cards">
+      <article class="card">
+        <h2>Fast without an index</h2>
+        <p>SIMD cosine over <code>wide::f32x8</code>, run in parallel with <code>rayon</code>. Reciprocal
+          norms are computed at insert, so each comparison is a dot product plus one multiply.</p>
+      </article>
+      <article class="card">
+        <h2>Survives <code>kill -9</code></h2>
+        <p>Every write reaches the log and fsync before memory changes. Snapshots are atomic. A write torn
+          in half by a crash is detected and ignored on recovery.</p>
+      </article>
+      <article class="card">
+        <h2>Embeddings stay in their lane</h2>
+        <p>Every vector records its <code>embed_model_id</code>, and queries can filter on it, so you never
+          compare vectors from incompatible models by accident.</p>
+      </article>
+      <article class="card">
+        <h2>Multi-tenant from day one</h2>
+        <p>A namespace is a field on every vector, not a migration you run later. Filter queries and
+          scans by it from the start.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="band" id="start">
+    <div class="wrap">
+      <p class="eyebrow">Quick start</p>
+      <h2 class="title">Three commands, then import it</h2>
+      <p class="muted">There's no package on PyPI yet, so build from source. You need a
+        <a href="https://rustup.rs">Rust toolchain</a> and an active Python virtualenv.</p>
+      <div class="code" data-copy>
+        <button class="copy" type="button">Copy</button>
+<pre><code>git clone https://github.com/aniketshukla1/athenadb &amp;&amp; cd athenadb
+pip install maturin
+maturin develop --release</code></pre>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Language">
+        <button role="tab" id="tab-py" aria-controls="panel-py" aria-selected="true" type="button">Python</button>
+        <button role="tab" id="tab-rs" aria-controls="panel-rs" aria-selected="false" tabindex="-1" type="button">Rust</button>
+      </div>
+      <div class="code" role="tabpanel" id="panel-py" aria-labelledby="tab-py" data-copy>
+        <button class="copy" type="button">Copy</button>
+<pre><code>import athenadb
+
+db = athenadb.AthenaDB("./data")
+
+db.add(
+    ids=["cat", "kitten", "car"],
+    vectors=[[0.9, 0.1, 0.0], [0.85, 0.2, 0.0], [0.0, 0.1, 0.95]],
+    metadatas=['{"kind": "animal"}', '{"kind": "animal"}', '{"kind": "vehicle"}'],
+    namespace="pets",
+    embed_model_id="bge-small",
+)
+
+db.query([1.0, 0.0, 0.0], k=2, namespace="pets", embed_model_id="bge-small")
+# [('cat',    0.9939, 'pets', 'bge-small', '{"kind":"animal"}'),
+#  ('kitten', 0.9734, 'pets', 'bge-small', '{"kind":"animal"}')]</code></pre>
+      </div>
+      <div class="code" role="tabpanel" id="panel-rs" aria-labelledby="tab-rs" data-copy hidden>
+        <button class="copy" type="button">Copy</button>
+<pre><code>use athenadb::core::Entry;
+use athenadb::db::Database;
+
+let mut db = Database::open("./data")?;
+
+db.add(Entry {
+    id: "cat".into(),
+    vector: vec![0.9, 0.1, 0.0],
+    metadata: serde_json::json!({ "kind": "animal" }),
+    namespace: "pets".into(),
+    embed_model_id: "bge-small".into(),
+    inv_norm: 0.0, // computed on insert
+})?;
+
+for hit in db.search(&amp;[1.0, 0.0, 0.0], 2, Some("pets"), Some("bge-small"))? {
+    println!("{} {:.3}", hit.id, hit.score);
+}</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="how">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2 class="title">One core, two paths through it</h2>
+      <p class="muted">Writes go to the log first, then memory. Reads scan every vector in parallel and keep the
+        best k. After a crash, the last snapshot loads and the log replays on top of it.</p>
+      <div class="figure-wrap" tabindex="0" role="group" aria-label="Figure; scrolls sideways on small screens"><img class="figure" src="assets/architecture.svg" width="960" height="456"
+        alt="Writes are appended to a write-ahead log with fsync, then applied to the in-memory store. Reads run a parallel SIMD cosine search and return the top k hits. Snapshots are atomic and truncate the log."></div>
+    </div>
+  </section>
+
+  <section class="band" id="performance">
+    <div class="wrap">
+      <p class="eyebrow">Performance</p>
+      <h2 class="title">Measured, and yours to re-run</h2>
+      <div class="figure-wrap" tabindex="0" role="group" aria-label="Figure; scrolls sideways on small screens"><img class="figure" src="assets/bench.svg" width="860" height="380"
+        alt="Median top-10 query latency on a log-log chart, rising from under 1 ms at 10 thousand vectors to 17 ms at 384 dimensions and 39 ms at 768 dimensions at 1 million vectors."></div>
+      <div class="table-wrap">
+        <table>
+          <caption>Median top-10 query, best of 3 runs, Apple M1 Pro (8 cores, 16 GB)</caption>
+          <thead><tr><th scope="col">Vectors</th><th scope="col">384 dimensions</th><th scope="col">768 dimensions</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">10,000</th><td>0.31 ms</td><td>0.47 ms</td></tr>
+            <tr><th scope="row">100,000</th><td>2.15 ms</td><td>3.81 ms</td></tr>
+            <tr><th scope="row">1,000,000</th><td>17.2 ms</td><td>39.0 ms</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="code" data-copy>
+        <button class="copy" type="button">Copy</button>
+<pre><code>cargo test --release --test bench -- --ignored --nocapture</code></pre>
+      </div>
+      <aside class="note">
+        <h3>Know the trade-off</h3>
+        <p>This is exact search, so latency grows with the size of the corpus. It suits thousands to a few
+          million vectors, where perfect recall matters more than sublinear lookups. Each write also waits
+          for its own fsync, which favors durability over bulk-insert speed. If you need tens of millions
+          of vectors today, you want an ANN index, which is on the roadmap below.</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="band" id="status">
+    <div class="wrap">
+      <p class="eyebrow">Status</p>
+      <h2 class="title">What's real today</h2>
+      <div class="status">
+        <div><h3><span class="dot on" aria-hidden="true"></span>Shipped</h3>
+          <p>SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots,
+            crash recovery, <code>scan</code>, Python bindings.</p></div>
+        <div><h3><span class="dot part" aria-hidden="true"></span>Scaffold only</h3>
+          <p>The HTTP service (Axum). The routes exist and return <code>501 Not Implemented</code>.</p></div>
+        <div><h3><span class="dot off" aria-hidden="true"></span>Planned</h3>
+          <p>An ANN index (HNSW or IVF), a group-commit log for faster writes, HTTP endpoints, and a
+            re-embedding pipeline keyed on <code>embed_model_id</code>.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <p>AthenaDB began as the memory engine for
+      <a href="https://aniketshukla1.github.io/glaux/">Glaux</a>, a multi-agent swarm that proves its work.</p>
+    <p><a href="https://github.com/aniketshukla1/athenadb">GitHub</a> ·
+      <a href="https://github.com/aniketshukla1/athenadb/blob/master/LICENSE">Apache-2.0</a></p>
+  </div>
+</footer>
+
+<script type="module" src="assets/site.js"></script>
+</body>
+</html>
