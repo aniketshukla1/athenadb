@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Rust tests
-        run: cargo test --release
+        run: cargo test --release --features server
 
       - name: Python binding tests
         run: |

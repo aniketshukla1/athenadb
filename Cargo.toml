@@ -1,9 +1,9 @@
 [package]
 name = "athenadb"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Custom high-performance vector store for the Athena swarm: SIMD cosine search, WAL+snapshot durability, dual-mode (PyO3 + Axum)."
+description = "Custom high-performance vector store: SIMD cosine search, WAL+snapshot durability, dual-mode (PyO3 + Axum)."
 
 [lib]
 name = "athenadb"
@@ -26,12 +26,20 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "macros"], option
 
 [dev-dependencies]
 tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [[bin]]
-name = "server"
-path = "src/bin/server.rs"
+name = "athenadb"
+path = "src/bin/athenadb.rs"
+required-features = ["server"]
+
+[[test]]
+name = "http_api"
 required-features = ["server"]
 
 [profile.release]
 lto = true
 codegen-units = 1
+# Cargo's default strip leaves the Python module unloadable on Darwin 27 ("mis-aligned LINKEDIT string pool").
+strip = false

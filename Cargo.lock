@@ -21,16 +21,18 @@ dependencies = [
 
 [[package]]
 name = "athenadb"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "bincode",
+ "http-body-util",
  "pyo3",
  "rayon",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tower",
  "wide",
 ]
 
