@@ -4,7 +4,7 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use athenadb::core::Entry;
+use athenadb::core::{DbError, Entry};
 use athenadb::db::Database;
 
 fn entry(id: &str, v: Vec<f32>) -> Entry {
@@ -134,4 +134,115 @@ fn snapshot_interval_triggers_automatically() {
     assert!(dir.path().join("snapshot.bin").exists());
     let db = Database::open(dir.path()).unwrap();
     assert_eq!(db.len(), 5);
+}
+
+#[test]
+fn batch_add_survives_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        db.add_batch(vec![entry("a", vec![1.0, 0.0]), entry("b", vec![0.0, 1.0]), entry("c", vec![1.0, 1.0])])
+            .unwrap();
+        assert_eq!(db.len(), 3);
+    }
+    let db = Database::open(dir.path()).unwrap();
+    assert_eq!(db.len(), 3);
+    assert_eq!(db.search(&[0.0, 1.0], 1, None, None).unwrap()[0].id, "b");
+}
+
+#[test]
+fn batch_with_a_bad_dimension_logs_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        let err = db.add_batch(vec![entry("a", vec![1.0, 0.0]), entry("b", vec![1.0, 0.0, 0.0])]);
+        assert!(err.is_err());
+        assert_eq!(db.len(), 0);
+    }
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 0);
+}
+
+#[test]
+fn torn_tail_after_a_batch_keeps_the_intact_frames() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        db.add_batch(vec![entry("a", vec![1.0, 0.0]), entry("b", vec![0.0, 1.0])]).unwrap();
+    }
+    let mut wal = OpenOptions::new().append(true).open(dir.path().join("wal.log")).unwrap();
+    wal.write_all(&[255, 0, 0, 0, 0, 0, 0, 0, 9, 9]).unwrap();
+    drop(wal);
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 2);
+}
+
+#[test]
+fn read_only_sees_the_data_and_refuses_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        db.add(entry("a", vec![1.0, 0.0])).unwrap();
+    }
+    let mut db = Database::open_read_only(dir.path()).unwrap();
+    assert!(db.is_read_only());
+    assert_eq!(db.search(&[1.0, 0.0], 1, None, None).unwrap()[0].id, "a");
+    assert!(matches!(db.add(entry("b", vec![0.0, 1.0])), Err(DbError::ReadOnly)));
+    assert!(matches!(db.delete("a"), Err(DbError::ReadOnly)));
+    assert!(matches!(db.snapshot(), Err(DbError::ReadOnly)));
+    assert_eq!(db.len(), 1);
+}
+
+#[test]
+fn read_only_never_creates_a_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope");
+    assert!(Database::open_read_only(&missing).is_err());
+    assert!(!missing.exists());
+
+    // An existing empty directory opens, and stays empty.
+    let empty = dir.path().join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    assert_eq!(Database::open_read_only(&empty).unwrap().len(), 0);
+    assert_eq!(std::fs::read_dir(&empty).unwrap().count(), 0);
+}
+
+#[test]
+fn read_only_notices_a_writer_moving_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut writer = Database::open(dir.path()).unwrap();
+    writer.add(entry("a", vec![1.0, 0.0])).unwrap();
+
+    let reader = Database::open_read_only(dir.path()).unwrap();
+    assert!(!reader.stats().disk_changed);
+    writer.add(entry("b", vec![0.0, 1.0])).unwrap();
+    assert!(reader.stats().disk_changed);
+    assert_eq!(reader.len(), 1);
+    assert_eq!(Database::open_read_only(dir.path()).unwrap().len(), 2);
+}
+
+#[test]
+fn stats_describe_groups_and_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut db = Database::open(dir.path()).unwrap();
+    let mut other = entry("c", vec![0.0, 0.0]);
+    other.namespace = "other".into();
+    db.add_batch(vec![entry("a", vec![1.0, 0.0]), entry("b", vec![0.0, 1.0]), other]).unwrap();
+
+    let stats = db.stats();
+    assert_eq!(stats.vectors, 3);
+    assert_eq!(stats.dimensions, Some(2));
+    assert_eq!(stats.zero_norm_vectors, 1);
+    assert_eq!(stats.groups[0].namespace, "default");
+    assert_eq!(stats.groups[0].vectors, 2);
+    assert_eq!(stats.groups[1].namespace, "other");
+    assert!(stats.disk.wal_bytes > 0);
+    assert_eq!(stats.disk.snapshot_bytes, 0);
+    assert_eq!(stats.ops_since_snapshot, 3);
+    assert!(!stats.read_only);
+
+    db.snapshot().unwrap();
+    let stats = db.stats();
+    assert_eq!(stats.disk.wal_bytes, 0);
+    assert!(stats.disk.snapshot_bytes > 0);
+    assert!(stats.disk.snapshot_modified_unix.is_some());
+    assert_eq!(stats.ops_since_snapshot, 0);
 }

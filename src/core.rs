@@ -70,6 +70,7 @@ pub enum DbError {
     Dimension { expected: usize, got: usize },
     Io(std::io::Error),
     Serde(String),
+    ReadOnly,
 }
 
 impl std::fmt::Display for DbError {
@@ -80,6 +81,7 @@ impl std::fmt::Display for DbError {
             }
             DbError::Io(e) => write!(f, "io error: {e}"),
             DbError::Serde(e) => write!(f, "serialization error: {e}"),
+            DbError::ReadOnly => write!(f, "this database was opened read-only"),
         }
     }
 }
@@ -188,6 +190,10 @@ impl VectorStore {
 
     pub fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    pub fn get(&self, id: &str) -> Option<&Entry> {
+        self.index.get(id).map(|&pos| &self.entries[pos])
     }
 
     /// Reconstruct a store (and its id index) from snapshotted parts.

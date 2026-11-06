@@ -38,10 +38,19 @@ impl Wal {
 
     /// Durably append one operation: write frame, flush, fsync.
     pub fn append(&mut self, op: &WalOp) -> Result<(), DbError> {
-        let bytes = bincode::serialize(op).map_err(|e| DbError::Serde(e.to_string()))?;
-        let len = bytes.len() as u64;
-        self.file.write_all(&len.to_le_bytes())?;
-        self.file.write_all(&bytes)?;
+        self.append_batch(std::slice::from_ref(op))
+    }
+
+    /// Durably append several operations behind a single fsync. A crash mid-batch
+    /// leaves a prefix of it: replay keeps the intact frames and ignores a torn tail.
+    pub fn append_batch(&mut self, ops: &[WalOp]) -> Result<(), DbError> {
+        let mut frames = Vec::new();
+        for op in ops {
+            let bytes = bincode::serialize(op).map_err(|e| DbError::Serde(e.to_string()))?;
+            frames.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            frames.extend_from_slice(&bytes);
+        }
+        self.file.write_all(&frames)?;
         self.file.flush()?;
         self.file.sync_all()?;
         Ok(())

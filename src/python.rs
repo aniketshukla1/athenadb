@@ -60,18 +60,18 @@ impl AthenaDB {
         let ns = namespace.unwrap_or_else(|| "default".to_string());
         let model = embed_model_id.unwrap_or_default();
 
-        for (i, id) in ids.into_iter().enumerate() {
-            let metadata = parse_meta(metadatas.as_ref().map(|m| &m[i]))?;
-            let entry = Entry {
+        let mut entries = Vec::with_capacity(ids.len());
+        for (i, (id, vector)) in ids.into_iter().zip(vectors).enumerate() {
+            entries.push(Entry {
                 id,
-                vector: vectors[i].clone(),
-                metadata,
+                vector,
+                metadata: parse_meta(metadatas.as_ref().map(|m| &m[i]))?,
                 namespace: ns.clone(),
                 embed_model_id: model.clone(),
                 inv_norm: 0.0,
-            };
-            self.inner.add(entry).map_err(to_py)?;
+            });
         }
+        self.inner.add_batch(entries).map_err(to_py)?;
         Ok(())
     }
 
