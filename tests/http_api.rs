@@ -1,8 +1,10 @@
 //! The HTTP contract: status codes, the one error shape, and the guards.
 
 use std::path::Path;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-use athenadb::core::Entry;
+use athenadb::core::{DbError, Entry};
 use athenadb::db::Database;
 use athenadb::server::{app, Config};
 use axum::body::Body;
@@ -458,4 +460,42 @@ async fn the_dashboard_is_served_with_a_strict_policy() {
     let (status, res) = call(&app, Method::GET, "/api/nope", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_error(&res, "NOT_FOUND");
+}
+
+#[test]
+fn a_writable_server_is_refused_a_store_someone_else_is_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let _writer = Database::open(dir.path()).unwrap();
+
+    assert!(matches!(app(config(dir.path(), true)), Err(DbError::Locked { .. })));
+    assert!(app(config(dir.path(), false)).is_ok(), "read-only must still open");
+}
+
+#[test]
+fn the_command_explains_a_locked_store_and_how_to_get_past_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let _writer = Database::open(dir.path()).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_athenadb"))
+        .arg("--data")
+        .arg(dir.path())
+        .args(["--writable", "--port", "0"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() > deadline {
+            child.kill().unwrap();
+            panic!("it started serving a store another writer holds");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(&dir.path().display().to_string()), "names the store: {stderr}");
+    assert!(stderr.contains("without --writable"), "says how to get past it: {stderr}");
 }

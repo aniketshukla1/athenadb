@@ -5,14 +5,20 @@
 //! `json.loads`) to keep the binding dependency-free and predictable. The
 //! Phase 2 `MemoryManager` wraps this in a friendlier dict-based API.
 
+use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
 use crate::core::{DbError, Entry};
 use crate::db::Database;
 
+create_exception!(athenadb, StoreLockedError, PyRuntimeError, "Another writer holds this store.");
+
 fn to_py(e: DbError) -> PyErr {
-    PyRuntimeError::new_err(e.to_string())
+    match e {
+        DbError::Locked { .. } => StoreLockedError::new_err(e.to_string()),
+        _ => PyRuntimeError::new_err(e.to_string()),
+    }
 }
 
 fn parse_meta(s: Option<&String>) -> PyResult<serde_json::Value> {
@@ -30,12 +36,17 @@ pub struct AthenaDB {
 
 #[pymethods]
 impl AthenaDB {
-    /// Open or create a database at `path`, recovering prior state.
+    /// Open or create a database at `path`, recovering prior state. A store takes one
+    /// writer at a time: a second raises `StoreLockedError`, and a handle holds the
+    /// store until it's garbage collected (`del db`).
+    ///
+    /// With `read_only=True`, read an existing store without locking it, even while
+    /// something else writes to it. This is a copy as of now: open it again to catch up.
     #[new]
-    fn new(path: String) -> PyResult<Self> {
-        Database::open(path)
-            .map(|inner| Self { inner })
-            .map_err(to_py)
+    #[pyo3(signature = (path, *, read_only=false))]
+    fn new(path: String, read_only: bool) -> PyResult<Self> {
+        let db = if read_only { Database::open_read_only(path) } else { Database::open(path) };
+        db.map(|inner| Self { inner }).map_err(to_py)
     }
 
     /// Add (or overwrite) vectors. `metadatas` is an optional list of JSON
@@ -158,6 +169,7 @@ impl AthenaDB {
 #[pymodule]
 fn athenadb(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AthenaDB>()?;
+    m.add("StoreLockedError", m.py().get_type_bound::<StoreLockedError>())?;
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

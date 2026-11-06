@@ -5,15 +5,22 @@
 //! replayed on top of the latest snapshot. A torn trailing frame — the
 //! signature of a `kill -9` mid-write — is detected and ignored on replay.
 
-use std::fs::{File, OpenOptions};
+use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{BufReader, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::{DbError, Entry};
 
 pub const WAL_FILE: &str = "wal.log";
+pub const LOCK_FILE: &str = "writer.lock";
+
+/// How long to wait out a lock before calling it held. A lock can outlive its holder for
+/// a moment: while any of the holder's threads spawns a process, the child has a copy of
+/// every open file until it execs. That took 45 ms at worst, with 16 threads spawning.
+const LOCK_GRACE: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum WalOp {
@@ -23,17 +30,43 @@ pub enum WalOp {
 
 pub struct Wal {
     file: File,
+    /// Holds the store's writer lock for as long as this log can be appended to. The
+    /// operating system releases it when the file closes, even if the process is killed.
+    _lock: File,
 }
 
 impl Wal {
-    /// Open (creating if needed) the WAL for appending.
+    /// Open (creating if needed) the WAL for appending, as the store's only writer:
+    /// frames from two writers would interleave and corrupt the log.
     pub fn open(dir: &Path) -> Result<Self, DbError> {
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(dir.join(LOCK_FILE))?;
+        let deadline = Instant::now() + LOCK_GRACE;
+        loop {
+            match lock.try_lock() {
+                Ok(()) => break,
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(TryLockError::WouldBlock) => {
+                    return Err(DbError::Locked { store: dir.to_path_buf() });
+                }
+                // Some file systems can't lock. Writing unprotected would risk the store.
+                Err(TryLockError::Error(e)) => {
+                    let message = format!("couldn't lock {}: {e}", dir.display());
+                    return Err(std::io::Error::new(e.kind(), message).into());
+                }
+            }
+        }
         let file = OpenOptions::new()
             .create(true)
             .read(true)
             .append(true)
             .open(dir.join(WAL_FILE))?;
-        Ok(Self { file })
+        Ok(Self { file, _lock: lock })
     }
 
     /// Durably append one operation: write frame, flush, fsync.

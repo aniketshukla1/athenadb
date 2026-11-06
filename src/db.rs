@@ -73,13 +73,17 @@ pub struct Database {
 }
 
 impl Database {
-    /// Open (or create) a database rooted at `dir`, recovering any prior state.
+    /// Open (or create) a database rooted at `dir`, recovering any prior state. This
+    /// handle is the store's only writer until it's dropped: anyone else who tries
+    /// gets [`DbError::Locked`].
     pub fn open<P: AsRef<Path>>(dir: P) -> Result<Self, DbError> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
+        // The log comes with the lock, so take it first: what's on disk can't be trusted
+        // while someone else might be writing it.
+        let wal = Wal::open(&dir)?;
         let (store, replayed) = Self::load(&dir)?;
-        let wal = Some(Wal::open(&dir)?);
-        Ok(Self::assemble(store, wal, dir, replayed))
+        Ok(Self::assemble(store, Some(wal), dir, replayed))
     }
 
     /// Open an existing store without touching its files, so it's safe to inspect

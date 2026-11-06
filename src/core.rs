@@ -10,6 +10,7 @@
 
 use std::cmp::{Ordering, Reverse};
 use std::collections::{BinaryHeap, HashMap};
+use std::path::PathBuf;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,8 @@ pub enum DbError {
     Io(std::io::Error),
     Serde(String),
     ReadOnly,
+    /// Another writer holds this store.
+    Locked { store: PathBuf },
 }
 
 impl std::fmt::Display for DbError {
@@ -82,6 +85,13 @@ impl std::fmt::Display for DbError {
             DbError::Io(e) => write!(f, "io error: {e}"),
             DbError::Serde(e) => write!(f, "serialization error: {e}"),
             DbError::ReadOnly => write!(f, "this database was opened read-only"),
+            DbError::Locked { store } => write!(
+                f,
+                "the store at {} is already open for writing, by another process or an earlier \
+                 handle in this one. A store takes one writer at a time: close the other writer, \
+                 or open this one read-only",
+                store.display()
+            ),
         }
     }
 }

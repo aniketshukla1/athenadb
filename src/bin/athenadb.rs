@@ -6,7 +6,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use athenadb::core::DbError;
 use athenadb::server::{app, Config};
+use athenadb::wal::LOCK_FILE;
 
 const USAGE: &str = "\
 athenadb: a dashboard and HTTP API for an AthenaDB store
@@ -19,8 +21,9 @@ OPTIONS:
     --host HOST     Address to listen on [default: 127.0.0.1]
     --port PORT     Port to listen on [default: 8001]
     --writable      Allow adding, deleting and snapshots, and create DIR if it's missing.
-                    Without this the store is opened read-only, which is safe even while
-                    another process writes to it. Never point two writers at one store.
+                    A store takes one writer at a time, so this fails if something else
+                    is writing to it. Without this the store is opened read-only, which
+                    is safe even while another process writes to it.
     --token TOKEN   Require this bearer token on the API. Also read from ATHENADB_TOKEN.
                     Needed to listen on anything other than loopback.
     --help          Show this message
@@ -101,6 +104,16 @@ async fn main() -> ExitCode {
     let data = args.data.clone();
     let router = match app(Config { data: args.data, writable: args.writable, token: args.token, loopback_only }) {
         Ok(router) => router,
+        Err(DbError::Locked { store }) => {
+            eprintln!(
+                "athenadb: the store at {} already has a writer, and two would corrupt its log.\n\
+                 Stop the other writer, or run without --writable to open it read-only.\n\
+                 To find it: lsof {}",
+                store.display(),
+                store.join(LOCK_FILE).display(),
+            );
+            return ExitCode::from(2);
+        }
         Err(e) => {
             eprintln!("athenadb: couldn't open {}: {e}", data.display());
             return ExitCode::FAILURE;

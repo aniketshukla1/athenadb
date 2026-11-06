@@ -10,7 +10,7 @@ Embed it in Python or Rust, with no server to run. When you want to look inside,
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-0.3.0-informational)
+![Version](https://img.shields.io/badge/version-0.4.0-informational)
 
 **[Website](https://aniketshukla1.github.io/athenadb/)** · [Quick start](#quick-start) · [Dashboard](#dashboard) · [How it works](#how-it-works) · [Performance](#performance) · [API](#python-api) · [Roadmap](#status-and-roadmap)
 
@@ -154,9 +154,9 @@ Open <http://127.0.0.1:8001> and click **Load sample data** to try it on synthet
 | **Connect** | Python, Rust and HTTP snippets for this store |
 
 **Safe by default.** Without `--writable` it opens the store read-only, so you can inspect a
-store another process is writing to, and reload when it changes. With `--writable` it owns the
-store, and nothing else should write to it: two writers would corrupt the log. It listens on
-loopback only, and needs `--token` (or `ATHENADB_TOKEN`) to listen anywhere else.
+store another process is writing to, and reload when it changes. With `--writable` it takes the
+store's writer lock, so a second writer gets a clear error instead of corrupting the log. It
+listens on loopback only, and needs `--token` (or `ATHENADB_TOKEN`) to listen anywhere else.
 
 ## How it works
 
@@ -205,17 +205,29 @@ is on the [roadmap](#status-and-roadmap).
 | A vector of the wrong dimension | Rejected before it reaches the log | `dim_mismatch_does_not_pollute_wal` |
 | A batch with one bad vector | Nothing from it reaches the log | `batch_with_a_bad_dimension_logs_nothing` |
 | Process killed mid-batch | Complete frames replay and the torn one is ignored, so a batch isn't atomic across a crash | `torn_tail_after_a_batch_keeps_the_intact_frames` |
+| A second writer on one store | Refused with an error naming the store, before it reads anything | `second_writer_is_refused_and_the_first_keeps_working` |
+| A writer killed while it holds the store | The operating system drops its lock, so the store reopens and recovers | `a_killed_writer_leaves_no_stale_lock` |
 
 All of these are tests in [`tests/persistence.rs`](tests/persistence.rs). Snapshots
 are written to a temp file, fsynced and renamed, so a crash mid-snapshot leaves the
 previous one in place. One is taken automatically every 10,000 operations, or on
 demand with `db.snapshot()`.
 
+**One writer at a time.** Opening a store for writing takes an operating system lock on
+`writer.lock` in its directory, held until the handle closes. Read-only opens skip it, so they
+work beside a writer. `lsof <store>/writer.lock` shows who holds it. The file stays behind and
+means nothing on its own, but deleting it while a writer runs would let a second one in.
+
+The lock has limits. It only binds AthenaDB 0.4 or newer, and a network mount is only as reliable
+as its own locking. A forked child shares its parent's lock, which then lasts until the child exits
+too, and nothing stops the child writing through the handle it inherited, so don't.
+
 ## Python API
 
 | Call | What it does |
 |---|---|
-| `AthenaDB(path)` | Open or create a database, recovering any prior state |
+| `AthenaDB(path)` | Open or create a database, recovering any prior state. Holds the writer lock until the handle is deleted (`del db`), and raises `StoreLockedError` if something else holds it |
+| `AthenaDB(path, read_only=True)` | Read an existing store without locking it, even while something else writes. This is a copy as of now: open it again to catch up |
 | `add(ids, vectors, metadatas=None, namespace=None, embed_model_id=None)` | Durably insert or overwrite, with one fsync per call. `metadatas` are JSON strings |
 | `query(vector, k=10, namespace=None, embed_model_id=None)` | Top-k by cosine: `(id, score, namespace, embed_model_id, metadata_json)` |
 | `scan(namespace=None, embed_model_id=None, limit=None, offset=0)` | List entries without ranking, with filters and pagination |
@@ -246,7 +258,7 @@ Writes return `403` unless the server was started with `--writable`.
 
 | | |
 |---|---|
-| **Shipped** | SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots, crash recovery, `scan`, Python bindings, HTTP API, dashboard |
+| **Shipped** | SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots, crash recovery, a writer lock, `scan`, Python bindings, HTTP API, dashboard |
 | **Planned** | ANN index (HNSW or IVF), group commit across concurrent writers, a re-embedding pipeline keyed on `embed_model_id` |
 
 ## Project layout
@@ -254,7 +266,7 @@ Writes return `403` unless the server was started with `--writable`.
 | Path | Role |
 |---|---|
 | [`src/core.rs`](src/core.rs) | `VectorStore`, SIMD cosine, parallel top-k |
-| [`src/wal.rs`](src/wal.rs) | Append-only write-ahead log |
+| [`src/wal.rs`](src/wal.rs) | Append-only write-ahead log, and the writer lock that guards it |
 | [`src/snapshot.rs`](src/snapshot.rs) | Atomic point-in-time snapshots |
 | [`src/db.rs`](src/db.rs) | `Database`: the durable store tying them together |
 | [`src/python.rs`](src/python.rs) | PyO3 bindings (`--features python`) |

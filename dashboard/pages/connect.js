@@ -20,13 +20,13 @@ function snippets(stats) {
   return {
     python: `import athenadb
 
-db = athenadb.AthenaDB(${JSON.stringify(stats.path)})
+db = athenadb.AthenaDB(${JSON.stringify(stats.path)}, read_only=True)
 hits = db.query(${vector}, k=10)
 for id, score, namespace, model, metadata in hits:
     print(id, round(score, 4))`,
     rust: `use athenadb::db::Database;
 
-let db = Database::open(${JSON.stringify(stats.path)})?;
+let db = Database::open_read_only(${JSON.stringify(stats.path)})?;
 for hit in db.search(&query, 10, None, None)? {
     println!("{} {:.4}", hit.id, hit.score);
 }`,
@@ -48,11 +48,11 @@ export function render(ctx) {
   const modeNote = stats.read_only
     ? h('div', { class: 'stack' },
       h('p', null, h('strong', null, 'This server is read-only. '), 'It works from a copy of the store loaded at startup and never touches the files, so it\'s safe to run while your application writes. When the store changes on disk, the top bar offers a reload.'),
-      h('p', { class: 'muted' }, 'To add, delete or snapshot from here, stop whatever else is using the store, then restart with:'),
+      h('p', { class: 'muted' }, 'To add, delete or snapshot from here, stop whatever else is writing to the store, then restart with:'),
       codeBlock(`athenadb --data ${shellQuote(stats.path)} --writable`))
     : h('div', { class: 'stack' },
-      h('p', null, h('strong', null, 'This server is writable. '), 'It owns the store: adds and deletes are logged and fsynced before they\'re acknowledged.'),
-      h('div', { class: 'inline-note' }, icon('warn'), h('div', null, 'While it runs, no other process should write to this store. Two writers would corrupt the log. To look at a store another process is writing to, run without --writable.')))
+      h('p', null, h('strong', null, 'This server is writable. '), 'It holds the store\'s writer lock: adds and deletes are logged and fsynced before they\'re acknowledged.'),
+      h('div', { class: 'inline-note' }, icon('warn'), h('div', null, 'While it runs, anything else that opens this store for writing gets an error. To look at a store another process is writing to, run without --writable.')))
 
   return {
     node: h('div', { class: 'stack' },
@@ -66,7 +66,7 @@ export function render(ctx) {
             { value: 'http', label: 'HTTP' },
           ], 'python', show, 'Language'),
           box,
-          stats.read_only && h('p', { class: 'small faint' }, 'The Python and Rust examples open the store themselves and don\'t go through this server.'))),
+          h('p', { class: 'small faint' }, 'The Python and Rust examples don\'t go through this server. They open their own read-only copy, which works whatever else has the store open. Opening it for writing takes the writer lock, so that fails while another writer is running.'))),
       h('section', { class: 'panel' },
         h('h2', null, 'HTTP API'),
         h('div', { class: 'table-wrap', tabindex: '0' }, h('table', { class: 'api-table' },

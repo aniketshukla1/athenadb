@@ -170,8 +170,9 @@ athenadb --data ./my-store --writable</code></pre>
       <aside class="note">
         <h3>Safe by default</h3>
         <p>Without <code>--writable</code> it opens the store read-only, so you can inspect a store another
-          process is writing to. With it, the dashboard owns the store, and nothing else should write to it.
-          It listens on loopback only, and needs a token to listen anywhere else.</p>
+          process is writing to. With it, the dashboard takes the store's writer lock, so a second writer gets
+          a clear error instead of corrupting the log. It listens on loopback only, and needs a token to
+          listen anywhere else.</p>
       </aside>
     </div>
   </section>
@@ -225,7 +226,7 @@ athenadb --data ./my-store --writable</code></pre>
       <div class="status">
         <div><h3><span class="dot on" aria-hidden="true"></span>Shipped</h3>
           <p>SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots,
-            crash recovery, <code>scan</code>, Python bindings, an HTTP API and a dashboard.</p></div>
+            crash recovery, a writer lock, <code>scan</code>, Python bindings, an HTTP API and a dashboard.</p></div>
         <div><h3><span class="dot off" aria-hidden="true"></span>Planned</h3>
           <p>An ANN index (HNSW or IVF), group commit across concurrent writers, and a re-embedding
             pipeline keyed on <code>embed_model_id</code>.</p></div>

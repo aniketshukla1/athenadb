@@ -7,6 +7,7 @@ Skipped automatically if the native module hasn't been built yet
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -133,3 +134,39 @@ def test_scan_survives_reopen(tmp_path):
     del db
     reopened = athenadb.AthenaDB(path)
     assert len(reopened.scan()) == 2
+
+
+def test_second_writer_raises_and_names_the_store(tmp_path):
+    path = str(tmp_path / "db")
+    first = athenadb.AthenaDB(path)
+    first.add(["a"], [[1.0, 0.0]])
+
+    with pytest.raises(athenadb.StoreLockedError, match=re.escape(path)):
+        athenadb.AthenaDB(path)
+
+    first.add(["b"], [[0.0, 1.0]])  # the first writer is unharmed
+    del first  # frees the store
+    assert len(athenadb.AthenaDB(path)) == 2
+
+
+def test_store_locked_error_is_a_runtime_error():
+    # Code that already catches RuntimeError keeps working.
+    assert issubclass(athenadb.StoreLockedError, RuntimeError)
+
+
+def test_read_only_reads_beside_a_writer_and_refuses_writes(tmp_path):
+    path = str(tmp_path / "db")
+    writer = athenadb.AthenaDB(path)
+    writer.add(["a"], [[1.0, 0.0]])
+
+    reader = athenadb.AthenaDB(path, read_only=True)
+    assert [hit[0] for hit in reader.query([1.0, 0.0], k=1)] == ["a"]
+    with pytest.raises(RuntimeError, match="read-only"):
+        reader.add(["b"], [[0.0, 1.0]])
+
+
+def test_read_only_never_creates_a_store(tmp_path):
+    missing = tmp_path / "nope"
+    with pytest.raises(RuntimeError):
+        athenadb.AthenaDB(str(missing), read_only=True)
+    assert not missing.exists()

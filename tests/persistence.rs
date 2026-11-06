@@ -2,10 +2,14 @@
 //! WAL writes (the `kill -9` mid-write signature).
 
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
 
 use athenadb::core::{DbError, Entry};
 use athenadb::db::Database;
+use athenadb::snapshot::SNAPSHOT_FILE;
+use athenadb::wal::LOCK_FILE;
 
 fn entry(id: &str, v: Vec<f32>) -> Entry {
     Entry {
@@ -245,4 +249,137 @@ fn stats_describe_groups_and_disk() {
     assert!(stats.disk.snapshot_bytes > 0);
     assert!(stats.disk.snapshot_modified_unix.is_some());
     assert_eq!(stats.ops_since_snapshot, 0);
+}
+
+#[test]
+fn second_writer_is_refused_and_the_first_keeps_working() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut first = Database::open(dir.path()).unwrap();
+    first.add(entry("a", vec![1.0, 0.0])).unwrap();
+
+    let err = Database::open(dir.path()).err().expect("a second writer must be refused");
+    assert!(matches!(err, DbError::Locked { .. }), "{err}");
+    assert!(err.to_string().contains(&dir.path().display().to_string()), "names the store: {err}");
+
+    first.add(entry("b", vec![0.0, 1.0])).unwrap();
+    first.snapshot().unwrap();
+    assert!(
+        matches!(Database::open(dir.path()), Err(DbError::Locked { .. })),
+        "a snapshot must not give up the lock"
+    );
+    first.add(entry("c", vec![1.0, 1.0])).unwrap();
+    drop(first);
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 3);
+}
+
+#[test]
+fn a_refused_writer_reads_nothing_from_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let _first = Database::open(dir.path()).unwrap();
+    std::fs::write(dir.path().join(SNAPSHOT_FILE), b"not a snapshot").unwrap();
+
+    // Loading would fail on this file, so Locked proves the lock came first. A writer that
+    // loaded and only then locked could snapshot over what the last holder wrote in between.
+    assert!(matches!(Database::open(dir.path()), Err(DbError::Locked { .. })));
+}
+
+#[test]
+fn reopening_works_once_the_writer_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    drop(Database::open(dir.path()).unwrap());
+
+    let _second = Database::open(dir.path()).unwrap();
+    assert!(
+        matches!(Database::open(dir.path()), Err(DbError::Locked { .. })),
+        "the reopened writer must hold the store in turn"
+    );
+}
+
+/// A lock can outlive its holder for a moment: while any thread is spawning a process,
+/// the child holds a copy of every open file until it execs.
+#[test]
+fn a_lock_that_lingers_for_a_moment_is_waited_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = Database::open(dir.path()).unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        drop(first);
+    });
+
+    assert!(Database::open(dir.path()).is_ok());
+    release.join().unwrap();
+}
+
+#[test]
+fn read_only_opens_beside_a_writer_and_stays_out_of_its_way() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut writer = Database::open(dir.path()).unwrap();
+    writer.add(entry("a", vec![1.0, 0.0])).unwrap();
+
+    let reader = Database::open_read_only(dir.path()).unwrap();
+    assert_eq!(reader.len(), 1);
+    writer.add(entry("b", vec![0.0, 1.0])).unwrap();
+    drop(writer);
+
+    // The reader holds nothing, so the next writer can start while it's still open.
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 2);
+}
+
+fn files_in(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_store_from_before_locks_stays_untouched_until_a_writer_opens_it() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        let mut db = Database::open(dir.path()).unwrap();
+        db.add(entry("a", vec![1.0, 0.0])).unwrap();
+    }
+    std::fs::remove_file(dir.path().join(LOCK_FILE)).unwrap();
+    let before = files_in(dir.path());
+
+    let reader = Database::open_read_only(dir.path()).unwrap();
+    assert_eq!(reader.len(), 1);
+    assert_eq!(files_in(dir.path()), before, "read-only must create nothing");
+
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 1);
+    assert!(dir.path().join(LOCK_FILE).exists());
+}
+
+/// Not a test of its own: the process that `a_killed_writer_leaves_no_stale_lock`
+/// starts, then kills.
+#[test]
+#[ignore = "started by a_killed_writer_leaves_no_stale_lock"]
+fn hold_the_store_until_killed() {
+    let Ok(dir) = std::env::var("ATHENADB_TEST_STORE") else { return };
+    let mut db = Database::open(dir).unwrap();
+    db.add(entry("a", vec![1.0, 0.0])).unwrap();
+    println!("holding");
+    std::thread::sleep(std::time::Duration::from_secs(120));
+}
+
+#[test]
+fn a_killed_writer_leaves_no_stale_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut writer = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "hold_the_store_until_killed", "--ignored", "--nocapture"])
+        .env("ATHENADB_TEST_STORE", dir.path())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let output = BufReader::new(writer.stdout.take().unwrap());
+    assert!(output.lines().map_while(Result::ok).any(|line| line.contains("holding")));
+
+    let refused = matches!(Database::open(dir.path()), Err(DbError::Locked { .. }));
+    writer.kill().unwrap(); // SIGKILL, so nothing gets to clean up.
+    writer.wait().unwrap();
+
+    assert!(refused, "another process's writer must be refused");
+    assert_eq!(Database::open(dir.path()).unwrap().len(), 1);
 }

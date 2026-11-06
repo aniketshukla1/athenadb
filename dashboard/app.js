@@ -96,7 +96,7 @@ function shortPath(path) {
 function renderTop() {
   const mode = stats.read_only
     ? h('a', { class: 'pill', href: '#/connect', title: 'Safe to inspect while another process writes. See Connect for how to enable changes.' }, icon('lock', 12), 'Read-only')
-    : h('span', { class: 'pill write', title: 'This dashboard can change the store. No other process should be writing to it.' }, icon('pencil', 12), 'Writable')
+    : h('span', { class: 'pill write', title: 'This dashboard can change the store. It holds the writer lock, so nothing else can open the store for writing.' }, icon('pencil', 12), 'Writable')
   const changed = stats.durability.disk_changed
   fill(topMeta,
     h('span', { class: 'top-path truncate mono', title: stats.path }, shortPath(stats.path)),
