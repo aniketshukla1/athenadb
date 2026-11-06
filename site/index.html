@@ -25,6 +25,7 @@
     </a>
     <nav aria-label="Main">
       <a href="#start">Quick start</a>
+      <a href="#dashboard">Dashboard</a>
       <a href="#how">How it works</a>
       <a href="#performance">Performance</a>
       <a href="https://github.com/aniketshukla1/athenadb">GitHub</a>
@@ -39,7 +40,7 @@
         <p class="eyebrow">Open source · Apache-2.0</p>
         <h1>Exact vector search, with <span class="grad">crash-consistent</span> storage</h1>
         <p class="lede">An embeddable vector database in Rust. SIMD cosine search, parallel top-k, and a
-          write-ahead log that survives <code>kill -9</code>. Use it from Python or Rust, with no server to run.</p>
+          write-ahead log that survives <code>kill -9</code>. Use it from Python or Rust, with no server to run, and look inside with a local dashboard.</p>
         <div class="cta">
           <a class="btn primary" href="#start">Get started <span aria-hidden="true">→</span></a>
           <a class="btn" href="https://github.com/aniketshukla1/athenadb">View on GitHub</a>
@@ -139,6 +140,42 @@ for hit in db.search(&amp;[1.0, 0.0, 0.0], 2, Some("pets"), Some("bge-small"))? 
     </div>
   </section>
 
+  <section class="band" id="dashboard">
+    <div class="wrap">
+      <p class="eyebrow">Dashboard</p>
+      <h2 class="title">See what's in your store</h2>
+      <p class="muted">Turn it in 3D, click a point for its exact nearest neighbours, and check its health. It's a
+        single binary of about 2 MB, with nothing to build and nothing loaded from the internet.</p>
+      <picture>
+        <source media="(prefers-reduced-motion: reduce)" srcset="assets/dashboard-explore.webp">
+        <img class="shot wide" src="assets/dashboard.webp" width="1600" height="1000" loading="lazy"
+          alt="The AthenaDB dashboard's Explore page, where six clusters of vectors coloured by namespace turn slowly in 3D.">
+      </picture>
+      <div class="shots">
+        <figure><a href="assets/dashboard-overview.webp"><img class="shot" src="assets/dashboard-overview.webp" width="2880" height="1240" loading="lazy"
+          alt="Overview page: vector count, dimensions, disk use and query latency, with a namespace table and health checks."></a>
+          <figcaption>Counts, disk use, query latency and health checks.</figcaption></figure>
+        <figure><a href="assets/dashboard-search.webp"><img class="shot" src="assets/dashboard-search.webp" width="2880" height="1240" loading="lazy"
+          alt="Search page: the ten nearest neighbours of a stored vector, with cosine scores."></a>
+          <figcaption>Search by a stored id or a pasted vector, then copy it as <code>curl</code>.</figcaption></figure>
+        <figure><a href="assets/dashboard-vector.webp"><img class="shot" src="assets/dashboard-vector.webp" width="2880" height="1240" loading="lazy"
+          alt="A vector's detail drawer: namespace, model, metadata and a heat strip of its values."></a>
+          <figcaption>Browse vectors, and open one to see its metadata and values.</figcaption></figure>
+      </div>
+      <div class="code" data-copy>
+        <button class="copy" type="button">Copy</button>
+<pre><code>cargo install --git https://github.com/aniketshukla1/athenadb --features server
+athenadb --data ./my-store --writable</code></pre>
+      </div>
+      <aside class="note">
+        <h3>Safe by default</h3>
+        <p>Without <code>--writable</code> it opens the store read-only, so you can inspect a store another
+          process is writing to. With it, the dashboard owns the store, and nothing else should write to it.
+          It listens on loopback only, and needs a token to listen anywhere else.</p>
+      </aside>
+    </div>
+  </section>
+
   <section class="band" id="how">
     <div class="wrap">
       <p class="eyebrow">How it works</p>
@@ -174,9 +211,9 @@ for hit in db.search(&amp;[1.0, 0.0, 0.0], 2, Some("pets"), Some("bge-small"))? 
       <aside class="note">
         <h3>Know the trade-off</h3>
         <p>This is exact search, so latency grows with the size of the corpus. It suits thousands to a few
-          million vectors, where perfect recall matters more than sublinear lookups. Each write also waits
-          for its own fsync, which favors durability over bulk-insert speed. If you need tens of millions
-          of vectors today, you want an ANN index, which is on the roadmap below.</p>
+          million vectors, where perfect recall matters more than sublinear lookups. Each add also waits for
+          an fsync, which favors durability over insert speed, so add vectors in batches. If you need tens
+          of millions of vectors today, you want an ANN index, which is on the roadmap below.</p>
       </aside>
     </div>
   </section>
@@ -188,12 +225,10 @@ for hit in db.search(&amp;[1.0, 0.0, 0.0], 2, Some("pets"), Some("bge-small"))? 
       <div class="status">
         <div><h3><span class="dot on" aria-hidden="true"></span>Shipped</h3>
           <p>SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots,
-            crash recovery, <code>scan</code>, Python bindings.</p></div>
-        <div><h3><span class="dot part" aria-hidden="true"></span>Scaffold only</h3>
-          <p>The HTTP service (Axum). The routes exist and return <code>501 Not Implemented</code>.</p></div>
+            crash recovery, <code>scan</code>, Python bindings, an HTTP API and a dashboard.</p></div>
         <div><h3><span class="dot off" aria-hidden="true"></span>Planned</h3>
-          <p>An ANN index (HNSW or IVF), a group-commit log for faster writes, HTTP endpoints, and a
-            re-embedding pipeline keyed on <code>embed_model_id</code>.</p></div>
+          <p>An ANN index (HNSW or IVF), group commit across concurrent writers, and a re-embedding
+            pipeline keyed on <code>embed_model_id</code>.</p></div>
       </div>
     </div>
   </section>

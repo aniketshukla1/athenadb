@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 456" width="960" height="456" role="img" aria-labelledby="t d" font-family="-apple-system,'Segoe UI',Helvetica,Arial,sans-serif">
   <title id="t">How AthenaDB handles writes and reads</title>
-  <desc id="d">Python and Rust clients call one core. Writes are validated, appended to a write-ahead log with fsync, then applied to the in-memory store. Reads run a parallel SIMD cosine search over the store and return the top k hits. Snapshots are written atomically and truncate the log. On boot, the last snapshot loads and the log tail replays.</desc>
+  <desc id="d">Python, Rust and HTTP clients call one core. Writes are validated, appended to a write-ahead log with fsync, then applied to the in-memory store. Reads run a parallel SIMD cosine search over the store and return the top k hits. Snapshots are written atomically and truncate the log. On boot, the last snapshot loads and the log tail replays.</desc>
   <style>
     .box { fill: #111620; stroke: #252d3d; }
     .title { fill: #e2e8f0; font-size: 15px; font-weight: 600; }
@@ -25,12 +25,14 @@
   <path class="flow write" d="M430 140 L430 204"/>
   <path class="flow read" d="M224 96 C 275 96, 270 228, 330 240"/>
   <path class="flow read" d="M224 188 C 270 188, 285 256, 330 262"/>
+  <path class="flow write" d="M224 280 C 290 280, 262 124, 330 122"/>
+  <path class="flow read" d="M224 280 C 268 280, 292 284, 330 284"/>
   <path class="flow read" d="M596 259 L712 259"/>
   <path class="maint" d="M596 226 C 650 226, 650 120, 712 120"/>
   <path class="maint" d="M712 80 L596 80"/>
   <text class="label" x="620" y="72">truncate</text>
-  <text class="label" x="614" y="164">every N ops,</text>
-  <text class="label" x="614" y="179">or on demand</text>
+  <text class="label" x="668" y="160">every N ops,</text>
+  <text class="label" x="668" y="175">or on demand</text>
 
   <!-- moving vectors -->
   <g class="dot" filter="url(#glow)">
@@ -50,6 +52,14 @@
       <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.3;.34;1" dur="5s" begin="3.7s" repeatCount="indefinite"/>
       <animateMotion path="M224 188 C 270 188, 285 256, 330 262 L596 259 L712 259" keyPoints="0;1;1" keyTimes="0;.34;1" calcMode="linear" dur="5s" begin="3.7s" repeatCount="indefinite"/>
     </circle>
+    <circle r="4" fill="#2dd4bf" opacity="0">
+      <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.3;.34;1" dur="7s" begin="1.75s" repeatCount="indefinite"/>
+      <animateMotion path="M224 280 C 290 280, 262 124, 330 122 L430 122 L430 204 L430 250" keyPoints="0;1;1" keyTimes="0;.34;1" calcMode="linear" dur="7s" begin="1.75s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="4" fill="#818cf8" opacity="0">
+      <animate attributeName="opacity" values="0;1;1;0;0" keyTimes="0;.04;.3;.34;1" dur="5s" begin="2.45s" repeatCount="indefinite"/>
+      <animateMotion path="M224 280 C 268 280, 292 284, 330 284 L596 259 L712 259" keyPoints="0;1;1" keyTimes="0;.34;1" calcMode="linear" dur="5s" begin="2.45s" repeatCount="indefinite"/>
+    </circle>
   </g>
 
   <!-- clients -->
@@ -60,17 +70,17 @@
     <rect class="box" x="28" y="154" width="196" height="68" rx="11"/>
     <text class="title" x="46" y="182">Rust</text>
     <text class="sub mono" x="46" y="204">athenadb::db::Database</text>
-    <rect x="28" y="246" width="196" height="68" rx="11" fill="none" stroke="#2a3344" stroke-dasharray="4 5"/>
-    <text class="title" x="46" y="274" style="fill:#64748b">HTTP service</text>
-    <text class="label" x="46" y="296">Axum scaffold, endpoints planned</text>
+    <rect class="box" x="28" y="246" width="196" height="68" rx="11"/>
+    <text class="title" x="46" y="274">HTTP and dashboard</text>
+    <text class="sub mono" x="46" y="296">athenadb --data DIR</text>
   </g>
 
   <!-- core -->
   <text class="label" x="330" y="46">WRITE-AHEAD LOG</text>
   <rect class="box" x="330" y="56" width="266" height="84" rx="11"/>
   <text class="title" x="348" y="86">Append, then fsync</text>
-  <text class="sub" x="348" y="110">Before memory changes. Length-prefixed frames,</text>
-  <text class="sub" x="348" y="127">so a torn tail is detected on replay.</text>
+  <text class="sub" x="348" y="110">Before memory changes. Length-prefixed</text>
+  <text class="sub" x="348" y="127">frames catch a torn tail on replay.</text>
 
   <text class="label" x="330" y="194">VECTOR STORE</text>
   <rect class="box" x="330" y="204" width="266" height="110" rx="11"/>

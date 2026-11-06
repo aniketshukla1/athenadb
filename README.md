@@ -4,15 +4,15 @@
 
 **Exact vector search in Rust, with crash-consistent storage.**
 <br />
-Embed it in Python or Rust. There is no server to run.
+Embed it in Python or Rust, with no server to run. When you want to look inside, a local dashboard is one command away.
 
 [![CI](https://github.com/aniketshukla1/athenadb/actions/workflows/ci.yml/badge.svg)](https://github.com/aniketshukla1/athenadb/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange)
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
-![Version](https://img.shields.io/badge/version-0.2.0-informational)
+![Version](https://img.shields.io/badge/version-0.3.0-informational)
 
-**[Website](https://aniketshukla1.github.io/athenadb/)** · [Quick start](#quick-start) · [How it works](#how-it-works) · [Performance](#performance) · [API](#python-api) · [Roadmap](#status-and-roadmap)
+**[Website](https://aniketshukla1.github.io/athenadb/)** · [Quick start](#quick-start) · [Dashboard](#dashboard) · [How it works](#how-it-works) · [Performance](#performance) · [API](#python-api) · [Roadmap](#status-and-roadmap)
 
 </div>
 
@@ -119,6 +119,45 @@ A complete version is in [`examples/quickstart.rs`](examples/quickstart.rs):
 
 </details>
 
+## Dashboard
+
+<div align="center">
+<img src="site/assets/dashboard.webp" alt="The AthenaDB dashboard's Explore page, where six clusters of vectors coloured by namespace turn slowly in 3D." width="100%" />
+</div>
+
+See what's in a store: turn it in 3D, click a point for its exact nearest neighbours, and
+check its health. It's a single binary of about 2 MB, with nothing to build and nothing
+loaded from the internet.
+
+```bash
+cargo install --git https://github.com/aniketshukla1/athenadb --features server
+athenadb --data ./my-store --writable
+```
+
+Open <http://127.0.0.1:8001> and click **Load sample data** to try it on synthetic vectors.
+
+<table>
+<tr>
+<td width="33%"><img src="site/assets/dashboard-overview.webp" alt="Overview page: vector count, dimensions, disk use and query latency, with a namespace table and health checks." /></td>
+<td width="33%"><img src="site/assets/dashboard-search.webp" alt="Search page: the ten nearest neighbours of a stored vector, with cosine scores." /></td>
+<td width="33%"><img src="site/assets/dashboard-vector.webp" alt="A vector's detail drawer: namespace, model, metadata and a heat strip of its values." /></td>
+</tr>
+</table>
+
+| Page | What it's for |
+|---|---|
+| **Overview** | Counts, disk use and query latency, plus warnings for zero vectors and mixed embedding models |
+| **Explore** | A 3D PCA you can turn and zoom. Click a point for its neighbours, computed exactly in all dimensions |
+| **Search** | Query by a stored id or a pasted vector, with filters, then copy it as `curl` |
+| **Browse** | Filter and page through vectors, and open one to see its metadata and values |
+| **Import** | Paste or drop JSON, checked before anything is written |
+| **Connect** | Python, Rust and HTTP snippets for this store |
+
+**Safe by default.** Without `--writable` it opens the store read-only, so you can inspect a
+store another process is writing to, and reload when it changes. With `--writable` it owns the
+store, and nothing else should write to it: two writers would corrupt the log. It listens on
+loopback only, and needs `--token` (or `ATHENADB_TOKEN`) to listen anywhere else.
+
 ## How it works
 
 <div align="center">
@@ -150,9 +189,10 @@ cargo test --release --test bench -- --ignored --nocapture
 
 **Know the trade-off.** This is exact search, so latency grows with the size of the
 corpus. It suits thousands to a few million vectors, where perfect recall matters
-more than sublinear lookups. Each write also waits for its own fsync, which favors
-durability over bulk-insert speed. If you need tens of millions of vectors today,
-you want an ANN index, which is on the [roadmap](#status-and-roadmap).
+more than sublinear lookups. Each add also waits for an fsync, which favors durability
+over insert speed, so add vectors in batches: `add` in Python takes a list, and Rust has
+`add_batch`. If you need tens of millions of vectors today, you want an ANN index, which
+is on the [roadmap](#status-and-roadmap).
 
 ## Durability
 
@@ -163,6 +203,8 @@ you want an ANN index, which is on the [roadmap](#status-and-roadmap).
 | Restart after a snapshot | The snapshot loads, then the log tail replays on top | `snapshot_then_recover` |
 | A delete before a crash | It stays deleted | `delete_persists` |
 | A vector of the wrong dimension | Rejected before it reaches the log | `dim_mismatch_does_not_pollute_wal` |
+| A batch with one bad vector | Nothing from it reaches the log | `batch_with_a_bad_dimension_logs_nothing` |
+| Process killed mid-batch | Complete frames replay and the torn one is ignored, so a batch isn't atomic across a crash | `torn_tail_after_a_batch_keeps_the_intact_frames` |
 
 All of these are tests in [`tests/persistence.rs`](tests/persistence.rs). Snapshots
 are written to a temp file, fsynced and renamed, so a crash mid-snapshot leaves the
@@ -174,20 +216,38 @@ demand with `db.snapshot()`.
 | Call | What it does |
 |---|---|
 | `AthenaDB(path)` | Open or create a database, recovering any prior state |
-| `add(ids, vectors, metadatas=None, namespace=None, embed_model_id=None)` | Durably insert or overwrite. `metadatas` are JSON strings |
+| `add(ids, vectors, metadatas=None, namespace=None, embed_model_id=None)` | Durably insert or overwrite, with one fsync per call. `metadatas` are JSON strings |
 | `query(vector, k=10, namespace=None, embed_model_id=None)` | Top-k by cosine: `(id, score, namespace, embed_model_id, metadata_json)` |
 | `scan(namespace=None, embed_model_id=None, limit=None, offset=0)` | List entries without ranking, with filters and pagination |
 | `delete(ids)` | Durably delete, returning how many existed |
 | `snapshot()` | Write a snapshot now and truncate the log |
 | `len(db)` | The number of vectors stored |
 
+## HTTP API
+
+The `athenadb` binary serves this beside the dashboard. Every error has the same shape:
+`{"error": {"code", "message", "details"?}}`.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/stats` | Counts, namespaces, disk use and query timing |
+| `GET /api/vectors` | List vectors. Filters: `namespace`, `embed_model_id`, `q`. Paging: `limit`, `offset` |
+| `POST /api/vectors` | Add or overwrite a batch, with one fsync per request |
+| `GET /api/vectors/:id` | One vector, with its values |
+| `DELETE /api/vectors/:id` | Delete. Safe to retry |
+| `POST /api/search` | Top k by cosine, from `{"id"}` or `{"vector"}`, with optional filters |
+| `GET /api/projection` | A 3D PCA of a sample of the store |
+| `POST /api/snapshots` | Write a snapshot now and empty the log |
+| `POST /api/reload` | Read-only servers: load the store from disk again |
+
+Writes return `403` unless the server was started with `--writable`.
+
 ## Status and roadmap
 
 | | |
 |---|---|
-| **Shipped** | SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots, crash recovery, `scan`, Python bindings |
-| **Scaffold only** | HTTP service (Axum): the routes exist and return `501 Not Implemented` |
-| **Planned** | ANN index (HNSW or IVF), group-commit log for faster writes, HTTP endpoints, a re-embedding pipeline keyed on `embed_model_id` |
+| **Shipped** | SIMD cosine search, parallel top-k, namespaces, model tags, write-ahead log, atomic snapshots, crash recovery, `scan`, Python bindings, HTTP API, dashboard |
+| **Planned** | ANN index (HNSW or IVF), group commit across concurrent writers, a re-embedding pipeline keyed on `embed_model_id` |
 
 ## Project layout
 
@@ -198,12 +258,15 @@ demand with `db.snapshot()`.
 | [`src/snapshot.rs`](src/snapshot.rs) | Atomic point-in-time snapshots |
 | [`src/db.rs`](src/db.rs) | `Database`: the durable store tying them together |
 | [`src/python.rs`](src/python.rs) | PyO3 bindings (`--features python`) |
-| [`src/bin/server.rs`](src/bin/server.rs) | Axum service scaffold (`--features server`) |
+| [`src/server.rs`](src/server.rs) | HTTP API and its guards (`--features server`) |
+| [`src/bin/athenadb.rs`](src/bin/athenadb.rs) | The `athenadb` command |
+| [`src/projection.rs`](src/projection.rs) | The 3D PCA behind Explore |
+| [`dashboard/`](dashboard) | The UI, embedded in the binary. Plain ES modules, no build step |
 
 ## Development
 
 ```bash
-cargo test                                # Rust tests
+cargo test --features server              # Rust tests, including the HTTP API
 maturin develop --release && pytest -q    # Python binding tests
 ```
 
